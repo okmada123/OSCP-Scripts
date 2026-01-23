@@ -2,7 +2,6 @@
 
 import os
 import sys
-import socket
 import subprocess
 import argparse
 from http.server import BaseHTTPRequestHandler, HTTPServer
@@ -20,17 +19,7 @@ def get_tun0_ip():
         else:
             return None
     except Exception as e:
-        print("tun0 not found, falling back to default interface.")
-
-    try:
-        # Get primary external IP (non-loopback, non-docker, etc.)
-        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        s.connect(("8.8.8.8", 80))  # Doesn't send data
-        fallback_ip = s.getsockname()[0]
-        s.close()
-        return fallback_ip
-    except Exception as e:
-        print(f"Error retrieving fallback IP address: {e}")
+        print(f"Error getting tun0 IP address: {e}")
         return None
 
 # Custom handler for HTTP server
@@ -65,6 +54,7 @@ def main():
     parser.add_argument('port', type=int, help="Port number to listen on")
     parser.add_argument('path', nargs='?', default='.', help="Base directory for file operations (default: current directory)")
     parser.add_argument('--file', help="Optional file argument")
+    parser.add_argument('--ip', type=str, help="IP address of the server (if omitted, attempts to use tun0 IP address)")
     
     args = parser.parse_args()
     
@@ -72,11 +62,10 @@ def main():
     global BASE_DIR
     BASE_DIR = args.path
     file = args.file
+    ip = args.ip if args.ip else get_tun0_ip()
 
-    # Get the IP address of tun0
-    ip = get_tun0_ip()
     if not ip:
-        print("Error: Could not get IP address for tun0 interface.")
+        print(f"Error: Could not get IP address for tun0 interface. Please specify an IP address manually using --ip <ip_address>.")
         sys.exit(1)
 
     # Print PowerShell and wget commands
