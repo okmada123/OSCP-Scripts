@@ -25,8 +25,9 @@ from typing import List, Dict, Optional
 
 from textual.app import App, ComposeResult
 from textual.containers import Container, VerticalScroll
-from textual.widgets import Header, Footer, Static, DataTable
+from textual.widgets import Header, Footer, Static, DataTable, Input, Label
 from textual.binding import Binding
+from textual.screen import ModalScreen
 
 BASE_DIR = "."  # default to current dir
 
@@ -57,7 +58,13 @@ class Handler(BaseHTTPRequestHandler):
     
     def do_PUT(self):
         length = int(self.headers['Content-Length'])
-        path = os.path.join(BASE_DIR, self.path.lstrip("/"))
+        filename = self.path.lstrip("/")
+        
+        # Save uploads to uploads/ subdirectory
+        uploads_dir = os.path.join(BASE_DIR, "uploads")
+        os.makedirs(uploads_dir, exist_ok=True)
+        
+        path = os.path.join(uploads_dir, filename)
         with open(path, "wb") as f:
             f.write(self.rfile.read(length))
         self.send_response(200)
@@ -67,7 +74,14 @@ class Handler(BaseHTTPRequestHandler):
         self.do_PUT()  # Same handler for simplicity
 
     def do_GET(self):
-        path = os.path.join(BASE_DIR, self.path.lstrip("/"))
+        filename = self.path.lstrip("/")
+        
+        # Try uploads/ directory first, then base directory
+        uploads_path = os.path.join(BASE_DIR, "uploads", filename)
+        base_path = os.path.join(BASE_DIR, filename)
+        
+        path = uploads_path if os.path.isfile(uploads_path) else base_path
+        
         if os.path.isfile(path):
             self.send_response(200)
             self.send_header('Content-type', 'application/octet-stream')
@@ -84,6 +98,11 @@ def run_server(port: int, base_dir: str):
     """Run the HTTP server in a separate thread"""
     global BASE_DIR
     BASE_DIR = base_dir
+    
+    # Create uploads directory if it doesn't exist
+    uploads_dir = os.path.join(base_dir, "uploads")
+    os.makedirs(uploads_dir, exist_ok=True)
+    
     server_address = ('', port)
     httpd = HTTPServer(server_address, Handler)
     httpd.serve_forever()
@@ -107,6 +126,7 @@ class FileListModel:
             if not os.path.exists(self.base_dir):
                 return files
             
+            # Scan base directory for files
             for filename in os.listdir(self.base_dir):
                 filepath = os.path.join(self.base_dir, filename)
                 if os.path.isfile(filepath):
@@ -116,6 +136,19 @@ class FileListModel:
                         'size': stat.st_size,
                         'mtime': stat.st_mtime
                     })
+            
+            # Scan uploads/ subdirectory if it exists
+            uploads_dir = os.path.join(self.base_dir, "uploads")
+            if os.path.exists(uploads_dir) and os.path.isdir(uploads_dir):
+                for filename in os.listdir(uploads_dir):
+                    filepath = os.path.join(uploads_dir, filename)
+                    if os.path.isfile(filepath):
+                        stat = os.stat(filepath)
+                        files.append({
+                            'name': f"uploads/{filename}",
+                            'size': stat.st_size,
+                            'mtime': stat.st_mtime
+                        })
             
             # Sort by modification time (newest first)
             files.sort(key=lambda x: x['mtime'], reverse=True)
@@ -153,13 +186,28 @@ class CommandGenerator:
     def generate_commands(ip: str, port: int, filename: str) -> Dict[str, str]:
         """Generate various download command formats"""
         url = f"http://{ip}:{port}/{filename}"
+        # Use just the basename for output filename
+        outfile = os.path.basename(filename)
         
         return {
             'url': url,
-            'wget': f'wget {url} -O {filename}',
-            'iwr_short': f'iwr -uri {url} -Outfile {filename}',
-            'iwr_full': f'Invoke-WebRequest -Uri {url} -Outfile {filename}',
-            'certutil': f'certutil.exe -urlcache -split -f {url} {filename}'
+            'wget': f'wget {url} -O {outfile}',
+            'iwr_short': f'iwr -uri {url} -Outfile {outfile}',
+            'iwr_full': f'Invoke-WebRequest -Uri {url} -Outfile {outfile}',
+            'certutil': f'certutil.exe -urlcache -split -f {url} {outfile}'
+        }
+    
+    @staticmethod
+    def generate_upload_commands(ip: str, port: int, filename: str) -> Dict[str, str]:
+        """Generate upload command formats for PUT and POST"""
+        url = f"http://{ip}:{port}/{filename}"
+        
+        return {
+            'url': url,
+            'wget_put': f'wget --method=PUT --body-file={filename} {url}',
+            'wget_post': f'wget --method=POST --body-file={filename} {url}',
+            'ps_put': f'Invoke-WebRequest -Uri {url} -Method PUT -InFile {filename}',
+            'ps_post': f'Invoke-WebRequest -Uri {url} -Method POST -InFile {filename}'
         }
 
 
@@ -231,16 +279,22 @@ class FileBrowser(Static):
 
 
 class CommandsPanel(Static):
-    """Commands panel showing download commands for selected file"""
+    """Commands panel showing download or upload commands"""
     
     def __init__(self, ip: str, port: int, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.ip = ip
         self.port = port
         self.current_filename = None
+        self.mode = "download"
+        self.upload_filename = None
     
     def update_commands(self, filename: Optional[str]) -> None:
         """Update displayed commands for the given filename"""
+        # Only update if in download mode
+        if self.mode != "download":
+            return
+        
         self.current_filename = filename
         
         if not filename:
@@ -258,6 +312,85 @@ class CommandsPanel(Static):
 {commands['certutil']}"""
         
         self.update(content)
+    
+    def show_upload_commands(self, filename: str) -> None:
+        """Switch to upload mode and show upload commands"""
+        self.mode = "upload"
+        self.upload_filename = filename
+        commands = CommandGenerator.generate_upload_commands(self.ip, self.port, filename)
+        
+        content = f"""[bold cyan]{filename}[/bold cyan]
+[dim](Upload Mode - Press Esc to return)[/dim]
+
+{commands['wget_post']}
+{commands['wget_put']}
+{commands['ps_post']}
+{commands['ps_put']}"""
+        
+        self.update(content)
+    
+    def show_download_commands(self) -> None:
+        """Switch back to download mode"""
+        self.mode = "download"
+        self.update_commands(self.current_filename)
+
+
+# ============================================================================
+# Input Screen for Upload Filename
+# ============================================================================
+
+class FilenameInputScreen(ModalScreen):
+    """Modal screen to input filename for upload commands"""
+    
+    CSS = """
+    FilenameInputScreen {
+        align: center middle;
+        background: rgba(0, 0, 0, 0.8);
+    }
+    
+    #input-dialog {
+        width: 50;
+        height: auto;
+        background: black;
+        border: solid white;
+        padding: 1 2;
+    }
+    
+    Label {
+        color: white;
+        margin-bottom: 1;
+    }
+    
+    Input {
+        width: 100%;
+        height: 3;
+        color: white;
+        background: black;
+        border: solid white;
+    }
+    """
+    
+    def compose(self) -> ComposeResult:
+        with Container(id="input-dialog"):
+            yield Label("Enter filename to upload:")
+            yield Input(placeholder="example.txt", id="filename-input")
+    
+    def on_mount(self) -> None:
+        """Focus the input when mounted"""
+        self.query_one(Input).focus()
+    
+    def on_input_submitted(self, event) -> None:
+        """Handle Enter key - submit the filename"""
+        filename = event.value.strip()
+        if filename:
+            self.dismiss(filename)
+        else:
+            self.dismiss(None)
+    
+    def on_key(self, event) -> None:
+        """Handle Escape key - cancel input"""
+        if event.key == "escape":
+            self.dismiss(None)
 
 
 # ============================================================================
@@ -293,6 +426,8 @@ class UploadServerApp(App):
     BINDINGS = [
         Binding("q", "quit", "Quit", priority=True),
         Binding("r", "refresh", "Refresh", priority=True),
+        Binding("u", "upload_mode", "Upload", priority=True),
+        Binding("escape", "return_to_download", "Back", show=False),
     ]
     
     def __init__(self, ip: str, port: int, base_dir: str):
@@ -329,6 +464,20 @@ class UploadServerApp(App):
         """Manual refresh action"""
         self.file_browser.refresh_files()
         self.update_commands()
+    
+    def action_upload_mode(self) -> None:
+        """Prompt for filename and show upload commands"""
+        self.push_screen(FilenameInputScreen(), self.handle_filename_input)
+    
+    def handle_filename_input(self, filename: Optional[str]) -> None:
+        """Handle the filename input from dialog"""
+        if filename:
+            self.commands_panel.show_upload_commands(filename)
+    
+    def action_return_to_download(self) -> None:
+        """Return to download commands view"""
+        if self.commands_panel.mode == "upload":
+            self.commands_panel.show_download_commands()
     
     def on_data_table_row_highlighted(self, event) -> None:
         """Handle row selection changes in the file browser"""
