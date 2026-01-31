@@ -116,8 +116,11 @@ def main():
         print(f"DLL compiled to {DLL_COMPILED_FILE_NAME}")
 
     print(f"\nDone.")
-    print(f"Generated files: {directory}")
+    print(f"Generated files:")
+    print(f"  - {os.path.join(directory, EXE_FILE_NAME)}")
     if (args.dll):
+        print(f"  - {os.path.join(directory, DLL_CODE_FILE_NAME)}")
+        print(f"  - {os.path.join(directory, DLL_COMPILED_FILE_NAME)}")
         print(f"\nUpload {EXE_FILE_NAME} to the target machine and place it at {args.dll}.")
         print(f"Upload {DLL_COMPILED_FILE_NAME} to the target machine and use it so that it runs.")
     else:
