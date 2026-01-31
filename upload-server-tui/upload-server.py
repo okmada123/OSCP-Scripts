@@ -414,6 +414,47 @@ class FilenameInputScreen(ModalScreen):
             self.dismiss(None)
 
 
+class ConfirmDeleteScreen(ModalScreen):
+    """Modal screen to confirm file deletion"""
+    
+    CSS = """
+    ConfirmDeleteScreen {
+        align: center middle;
+        background: rgba(0, 0, 0, 0.8);
+    }
+    
+    #confirm-dialog {
+        width: 60;
+        height: auto;
+        background: black;
+        border: solid red;
+        padding: 1 2;
+    }
+    
+    Label {
+        color: white;
+        width: 100%;
+    }
+    """
+    
+    def __init__(self, filename: str):
+        super().__init__()
+        self.filename = filename
+    
+    def compose(self) -> ComposeResult:
+        with Container(id="confirm-dialog"):
+            yield Label(f"Delete file: {self.filename}?")
+            yield Label("")
+            yield Label("Press 'y' to confirm, any other key to cancel")
+    
+    def on_key(self, event) -> None:
+        """Handle key press - y to confirm, anything else to cancel"""
+        if event.key == "y":
+            self.dismiss(True)
+        else:
+            self.dismiss(False)
+
+
 # ============================================================================
 # Main TUI Application
 # ============================================================================
@@ -448,6 +489,7 @@ class UploadServerApp(App):
         Binding("q", "quit", "Quit", priority=True),
         Binding("r", "refresh", "Refresh", priority=True),
         Binding("u", "upload_mode", "Upload", priority=True),
+        Binding("x", "delete_file", "Delete", priority=True),
         Binding("escape", "return_to_download", "Back", show=False),
     ]
     
@@ -499,6 +541,28 @@ class UploadServerApp(App):
         """Return to download commands view"""
         if self.commands_panel.mode == "upload":
             self.commands_panel.show_download_commands()
+    
+    def action_delete_file(self) -> None:
+        """Delete the currently selected file"""
+        selected_file = self.file_browser.get_selected_file()
+        if selected_file:
+            self.push_screen(ConfirmDeleteScreen(selected_file), self.handle_delete_confirmation)
+    
+    def handle_delete_confirmation(self, confirmed: bool) -> None:
+        """Handle the delete confirmation response"""
+        if confirmed:
+            selected_file = self.file_browser.get_selected_file()
+            if selected_file:
+                # Build the full file path
+                filepath = os.path.join(self.base_dir, selected_file)
+                try:
+                    os.remove(filepath)
+                    # Refresh the file list
+                    self.file_browser.refresh_files()
+                    self.update_commands()
+                except Exception as e:
+                    # Silently handle errors
+                    pass
     
     def on_data_table_row_highlighted(self, event) -> None:
         """Handle row selection changes in the file browser"""
