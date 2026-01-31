@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!.venv/bin/python3
 """
 Interactive TUI HTTP Upload/Download Server
 
@@ -221,8 +221,8 @@ class CommandGenerator:
             'url': url,
             'curl_put': f'curl.exe -X PUT --upload-file {filename} {url}',
             'curl_post': f'curl.exe -X POST --data-binary @{filename} {url}',
-            'wget_put': f'wget --method=PUT --body-file={filename} {url}',
-            'wget_post': f'wget --method=POST --body-file={filename} {url}',
+            'wget_put': f'wget -O - -q --server-response --method=PUT --body-file={filename} {url}',
+            'wget_post': f'wget -O - -q --server-response --method=POST --body-file={filename} {url}',
             'ps_put': f'Invoke-WebRequest -Uri {url} -Method PUT -InFile {filename}',
             'ps_post': f'Invoke-WebRequest -Uri {url} -Method POST -InFile {filename}'
         }
