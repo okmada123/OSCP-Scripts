@@ -19,6 +19,7 @@ import subprocess
 import argparse
 import threading
 import re
+import hashlib
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from datetime import datetime
 from typing import List, Dict, Optional
@@ -134,7 +135,8 @@ class FileListModel:
                     files.append({
                         'name': filename,
                         'size': stat.st_size,
-                        'mtime': stat.st_mtime
+                        'mtime': stat.st_mtime,
+                        'md5': self.calculate_md5(filepath)
                     })
             
             # Scan uploads/ subdirectory if it exists
@@ -147,7 +149,8 @@ class FileListModel:
                         files.append({
                             'name': f"uploads/{filename}",
                             'size': stat.st_size,
-                            'mtime': stat.st_mtime
+                            'mtime': stat.st_mtime,
+                            'md5': self.calculate_md5(filepath)
                         })
             
             # Sort by modification time (newest first)
@@ -158,6 +161,18 @@ class FileListModel:
             pass
         
         return self.files
+    
+    @staticmethod
+    def calculate_md5(filepath: str) -> str:
+        """Calculate MD5 hash of a file"""
+        try:
+            hash_md5 = hashlib.md5()
+            with open(filepath, "rb") as f:
+                for chunk in iter(lambda: f.read(4096), b""):
+                    hash_md5.update(chunk)
+            return hash_md5.hexdigest()
+        except Exception:
+            return "error"
     
     @staticmethod
     def format_size(size: int) -> str:
@@ -204,6 +219,8 @@ class CommandGenerator:
         
         return {
             'url': url,
+            'curl_put': f'curl.exe -X PUT --upload-file {filename} {url}',
+            'curl_post': f'curl.exe -X POST --data-binary @{filename} {url}',
             'wget_put': f'wget --method=PUT --body-file={filename} {url}',
             'wget_post': f'wget --method=POST --body-file={filename} {url}',
             'ps_put': f'Invoke-WebRequest -Uri {url} -Method PUT -InFile {filename}',
@@ -225,9 +242,10 @@ class FileBrowser(Static):
     
     def compose(self) -> ComposeResult:
         self.table = DataTable()
-        self.table.add_column("Filename", width=40)
-        self.table.add_column("Size", width=12)
+        self.table.add_column("Filename", width=30)
+        self.table.add_column("Size", width=10)
         self.table.add_column("Modified", width=16)
+        self.table.add_column("MD5", width=32)
         self.table.cursor_type = "row"
         yield self.table
     
@@ -244,13 +262,14 @@ class FileBrowser(Static):
         self.table.clear()
         
         if not files:
-            self.table.add_row("(No files found)", "-", "-")
+            self.table.add_row("(No files found)", "-", "-", "-")
         else:
             for file_info in files:
                 self.table.add_row(
                     file_info['name'],
                     self.file_model.format_size(file_info['size']),
-                    self.file_model.format_time(file_info['mtime'])
+                    self.file_model.format_time(file_info['mtime']),
+                    file_info['md5']
                 )
             
             # Try to restore selection to the same file
@@ -322,10 +341,12 @@ class CommandsPanel(Static):
         content = f"""[bold cyan]{filename}[/bold cyan]
 [dim](Upload Mode - Press Esc to return)[/dim]
 
-{commands['wget_post']}
+{commands['curl_put']}
+{commands['curl_post']}
 {commands['wget_put']}
-{commands['ps_post']}
-{commands['ps_put']}"""
+{commands['wget_post']}
+{commands['ps_put']}
+{commands['ps_post']}"""
         
         self.update(content)
     
