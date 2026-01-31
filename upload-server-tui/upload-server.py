@@ -136,7 +136,8 @@ class FileListModel:
                         'name': filename,
                         'size': stat.st_size,
                         'mtime': stat.st_mtime,
-                        'md5': self.calculate_md5(filepath)
+                        'md5': self.calculate_md5(filepath),
+                        'local_path': os.path.abspath(filepath)
                     })
             
             # Scan uploads/ subdirectory if it exists
@@ -150,7 +151,8 @@ class FileListModel:
                             'name': f"uploads/{filename}",
                             'size': stat.st_size,
                             'mtime': stat.st_mtime,
-                            'md5': self.calculate_md5(filepath)
+                            'md5': self.calculate_md5(filepath),
+                            'local_path': os.path.abspath(filepath)
                         })
             
             # Sort by modification time (newest first)
@@ -246,6 +248,7 @@ class FileBrowser(Static):
         self.table.add_column("Size", width=10)
         self.table.add_column("Modified", width=16)
         self.table.add_column("MD5", width=32)
+        self.table.add_column("Local Path", width=60)
         self.table.cursor_type = "row"
         yield self.table
     
@@ -262,14 +265,15 @@ class FileBrowser(Static):
         self.table.clear()
         
         if not files:
-            self.table.add_row("(No files found)", "-", "-", "-")
+            self.table.add_row("(No files found)", "-", "-", "-", "-")
         else:
             for file_info in files:
                 self.table.add_row(
                     file_info['name'],
                     self.file_model.format_size(file_info['size']),
                     self.file_model.format_time(file_info['mtime']),
-                    file_info['md5']
+                    file_info['md5'],
+                    file_info['local_path']
                 )
             
             # Try to restore selection to the same file
