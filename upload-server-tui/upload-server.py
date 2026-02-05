@@ -529,6 +529,17 @@ class UploadServerApp(App):
     
     def action_refresh(self) -> None:
         """Manual refresh action"""
+        # Update tun0 IP address
+        new_ip = get_tun0_ip()
+        if new_ip:
+            self.ip = new_ip
+            self.commands_panel.ip = new_ip
+            self.title = f"Upload Server - {self.ip}:{self.port}"
+        else:
+            # Exit gracefully if tun0 IP is not available
+            self.exit(message="Error: tun0 interface not found or has no IP address.")
+            return
+        
         self.file_browser.refresh_files()
         self.update_commands()
     
