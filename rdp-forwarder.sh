@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Default ports
-LPORT=3389
+LPORT=3388
 DPORT=3389
 
 # Parse arguments
