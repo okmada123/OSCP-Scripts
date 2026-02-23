@@ -76,7 +76,12 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         filename = self.path.lstrip("/")
-        
+
+        # Serve directory listing at root
+        if filename == "":
+            self._serve_directory_listing()
+            return
+
         # Try uploads/ directory first, then base directory
         uploads_path = os.path.join(BASE_DIR, "uploads", filename)
         base_path = os.path.join(BASE_DIR, filename)
@@ -93,6 +98,58 @@ class Handler(BaseHTTPRequestHandler):
             self.send_response(404)
             self.end_headers()
             self.wfile.write(b"File not found.\n")
+
+    def _serve_directory_listing(self):
+        """Generate and serve a classic Python-style directory listing for BASE_DIR"""
+        rows = []
+
+        def add_entry(display_name, href, size, mtime):
+            dt = datetime.fromtimestamp(mtime).strftime('%Y-%m-%d %H:%M')
+            rows.append(
+                f'<tr><td><a href="{href}">{display_name}</a></td>'
+                f'<td align="right">{size}</td>'
+                f'<td align="right">{dt}</td></tr>'
+            )
+
+        def fmt_size(n):
+            for unit in ('B', 'K', 'M', 'G', 'T'):
+                if n < 1024:
+                    return f"{n:.0f}{unit}"
+                n /= 1024
+            return f"{n:.0f}P"
+
+        try:
+            for entry in sorted(os.scandir(BASE_DIR), key=lambda e: (not e.is_dir(), e.name.lower())):
+                stat = entry.stat()
+                if entry.is_dir():
+                    continue
+                else:
+                    add_entry(entry.name, entry.name, fmt_size(stat.st_size), stat.st_mtime)
+        except OSError:
+            pass
+
+        table_body = "\n".join(rows) if rows else "<tr><td colspan='3'>(empty)</td></tr>"
+        html = f"""\
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><title>Directory listing for /</title></head>
+<body>
+<h2>Directory listing for /</h2>
+<hr>
+<table>
+<tr><th align="left">Name</th><th align="right">Size</th><th align="right">Last Modified</th></tr>
+{table_body}
+</table>
+<hr>
+</body>
+</html>
+"""
+        body = html.encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
 
 
 def run_server(port: int, base_dir: str):
@@ -505,7 +562,7 @@ class UploadServerApp(App):
         self.file_model = FileListModel(base_dir)
         self.file_browser = None
         self.commands_panel = None
-        self.title = f"Upload Server - {ip}:{port}"
+        self.title = f"Upload Server - http://{ip}:{port}"
         self.sub_title = f"Serving: {os.path.abspath(base_dir)}"
     
     def compose(self) -> ComposeResult:
