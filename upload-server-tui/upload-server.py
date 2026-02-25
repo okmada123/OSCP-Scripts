@@ -28,9 +28,11 @@ from textual.app import App, ComposeResult
 from textual.containers import Container, VerticalScroll
 from textual.widgets import Header, Footer, Static, DataTable, Input, Label
 from textual.binding import Binding
-from textual.screen import ModalScreen
+from textual.screen import ModalScreen, Screen
 
 BASE_DIR = "."  # default to current dir
+ACCESS_LOG_LOCK = threading.Lock()
+ACCESS_LOG_PATH = "./access.log"
 
 
 # ============================================================================
@@ -56,6 +58,23 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, format, *args):
         """Suppress default logging to avoid interfering with TUI"""
         pass
+
+    def log_request(self, code='-', size='-'):
+        """No-op: BaseHTTPRequestHandler.send_response() calls this with size='-'.
+        We log explicitly via _append_access_log() after we know the response size."""
+        pass
+
+    def _append_access_log(self, code: int, size: int):
+        """Append request to access.log (Apache-style format). Called explicitly once per request."""
+        client_ip = self.client_address[0]
+        timestamp = datetime.now().strftime('%d/%b/%Y:%H:%M:%S')
+        log_line = f'{client_ip} - - [{timestamp}] "{self.command} {self.path}" {code} {size}\n'
+        with ACCESS_LOG_LOCK:
+            try:
+                with open(ACCESS_LOG_PATH, 'a') as f:
+                    f.write(log_line)
+            except OSError:
+                pass
     
     def do_PUT(self):
         length = int(self.headers['Content-Length'])
@@ -70,6 +89,7 @@ class Handler(BaseHTTPRequestHandler):
             f.write(self.rfile.read(length))
         self.send_response(200)
         self.end_headers()
+        self._append_access_log(200, 0)
 
     def do_POST(self):
         self.do_PUT()  # Same handler for simplicity
@@ -79,7 +99,8 @@ class Handler(BaseHTTPRequestHandler):
 
         # Serve directory listing at root
         if filename == "":
-            self._serve_directory_listing()
+            size = self._serve_directory_listing()
+            self._append_access_log(200, size)
             return
 
         # Try uploads/ directory first, then base directory
@@ -89,15 +110,18 @@ class Handler(BaseHTTPRequestHandler):
         path = uploads_path if os.path.isfile(uploads_path) else base_path
         
         if os.path.isfile(path):
+            with open(path, 'rb') as f:
+                data = f.read()
             self.send_response(200)
             self.send_header('Content-type', 'application/octet-stream')
             self.end_headers()
-            with open(path, 'rb') as f:
-                self.wfile.write(f.read())
+            self.wfile.write(data)
+            self._append_access_log(200, len(data))
         else:
             self.send_response(404)
             self.end_headers()
             self.wfile.write(b"File not found.\n")
+            self._append_access_log(404, len(b"File not found.\n"))
 
     def _serve_directory_listing(self):
         """Generate and serve a classic Python-style directory listing for BASE_DIR"""
@@ -150,6 +174,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
+        return len(body)
 
 
 def run_server(port: int, base_dir: str):
@@ -516,6 +541,52 @@ class ConfirmDeleteScreen(ModalScreen):
             self.dismiss(False)
 
 
+class AccessLogScreen(Screen):
+    """Full-screen access log viewer"""
+
+    CSS = """
+    #log-scroll {
+        height: 1fr;
+    }
+    #log-content {
+        width: 100%;
+        padding: 1;
+    }
+    """
+
+    BINDINGS = [
+        Binding("escape", "back", "Back", priority=True),
+    ]
+
+    def __init__(self, log_path: str):
+        super().__init__()
+        self.log_path = log_path
+
+    def compose(self) -> ComposeResult:
+        yield Header()
+        with VerticalScroll(id="log-scroll"):
+            yield Static("", id="log-content")
+        yield Footer()
+
+    def on_mount(self) -> None:
+        self.refresh_log()
+        self.set_interval(1.0, self.refresh_log)
+
+    def refresh_log(self) -> None:
+        try:
+            with open(self.log_path, "r") as f:
+                content = f.read()
+        except OSError:
+            content = "(no access log yet)"
+        log_widget = self.query_one("#log-content", Static)
+        log_widget.update(content)
+        self.query_one("#log-scroll", VerticalScroll).scroll_end(animate=False)
+
+    def action_back(self) -> None:
+        """Return to main dashboard"""
+        self.app.pop_screen()
+
+
 # ============================================================================
 # Main TUI Application
 # ============================================================================
@@ -549,6 +620,7 @@ class UploadServerApp(App):
     BINDINGS = [
         Binding("q", "quit", "Quit", priority=True),
         Binding("r", "refresh", "Refresh", priority=True),
+        Binding("l", "show_log", "Log", priority=True),
         Binding("u", "upload_mode", "Upload", priority=True),
         Binding("x", "delete_file", "Delete", priority=True),
         Binding("escape", "return_to_download", "Back", show=False),
@@ -600,6 +672,10 @@ class UploadServerApp(App):
         self.file_browser.refresh_files()
         self.update_commands()
     
+    def action_show_log(self) -> None:
+        """Show access log screen"""
+        self.push_screen(AccessLogScreen(ACCESS_LOG_PATH))
+
     def action_upload_mode(self) -> None:
         """Prompt for filename and show upload commands"""
         self.push_screen(FilenameInputScreen(), self.handle_filename_input)
