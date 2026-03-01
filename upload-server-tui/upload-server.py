@@ -91,8 +91,68 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self._append_access_log(200, 0)
 
+    def _parse_multipart_file(self, content_type):
+        """Read the request body and extract the first file field from a multipart/form-data upload.
+        Returns (filename, data) or (None, None) on failure."""
+        boundary_match = re.search(r'boundary=([^\s;]+)', content_type)
+        if not boundary_match:
+            return None, None
+        boundary = boundary_match.group(1).strip('"').encode()
+
+        length = int(self.headers.get('Content-Length', 0))
+        body = self.rfile.read(length)
+
+        delimiter = b'--' + boundary
+        parts = body.split(delimiter)
+        for part in parts[1:]:
+            if part.startswith(b'--'):
+                continue
+            if part.startswith(b'\r\n'):
+                part = part[2:]
+            if b'\r\n\r\n' not in part:
+                continue
+            headers_raw, _, file_data = part.partition(b'\r\n\r\n')
+            if file_data.endswith(b'\r\n'):
+                file_data = file_data[:-2]
+            headers_str = headers_raw.decode('utf-8', errors='replace')
+            filename = None
+            is_file_field = False
+            for line in headers_str.split('\r\n'):
+                if line.lower().startswith('content-disposition:'):
+                    if re.search(r'name="file"', line):
+                        is_file_field = True
+                    fn_match = re.search(r'filename="([^"]*)"', line)
+                    if fn_match:
+                        filename = fn_match.group(1)
+            if is_file_field and filename:
+                return filename, file_data
+        return None, None
+
     def do_POST(self):
-        self.do_PUT()  # Same handler for simplicity
+        content_type = self.headers.get('Content-Type', '')
+        if 'multipart/form-data' in content_type:
+            filename, file_data = self._parse_multipart_file(content_type)
+            if filename and file_data is not None:
+                uploads_dir = os.path.join(BASE_DIR, "uploads")
+                os.makedirs(uploads_dir, exist_ok=True)
+                safe_name = os.path.basename(filename)
+                filepath = os.path.join(uploads_dir, safe_name)
+                with open(filepath, 'wb') as f:
+                    f.write(file_data)
+                self.send_response(303)
+                self.send_header('Location', '/')
+                self.send_header('Content-Length', '0')
+                self.end_headers()
+                self._append_access_log(303, 0)
+            else:
+                body = b"No file provided.\n"
+                self.send_response(400)
+                self.send_header('Content-Length', str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+                self._append_access_log(400, len(body))
+        else:
+            self.do_PUT()
 
     def do_GET(self):
         filename = self.path.lstrip("/")
@@ -160,10 +220,21 @@ class Handler(BaseHTTPRequestHandler):
 <body>
 <h2>Directory listing for /</h2>
 <hr>
-<table>
-<tr><th align="left">Name</th><th align="right">Size</th><th align="right">Last Modified</th></tr>
-{table_body}
-</table>
+<div style="display:flex;gap:3em;align-items:flex-start;">
+  <div style="flex:1;">
+    <table>
+    <tr><th align="left">Name</th><th align="right">Size</th><th align="right">Last Modified</th></tr>
+    {table_body}
+    </table>
+  </div>
+  <div style="min-width:220px;">
+    <h3 style="margin-top:0;">Upload File</h3>
+    <form method="POST" enctype="multipart/form-data" action="/">
+      <input type="file" name="file"><br><br>
+      <input type="submit" value="Upload">
+    </form>
+  </div>
+</div>
 <hr>
 </body>
 </html>
