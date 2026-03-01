@@ -229,10 +229,21 @@ class Handler(BaseHTTPRequestHandler):
   </div>
   <div style="min-width:220px;">
     <h3 style="margin-top:0;">Upload File</h3>
-    <form method="POST" enctype="multipart/form-data" action="/">
-      <input type="file" name="file"><br><br>
-      <input type="submit" value="Upload">
-    </form>
+    <div id="drop-zone" style="border:2px dashed #888;padding:1.5em;margin-bottom:0;text-align:center;border-radius:4px;">
+      <p style="margin:0 0 0.5em 0;color:#666;">Drag file here or</p>
+      <form method="POST" enctype="multipart/form-data" action="/" id="upload-form">
+        <input type="file" name="file" id="file-input"><br><br>
+        <input type="submit" value="Upload">
+      </form>
+    </div>
+    <script>
+(function(){{
+  var dz=document.getElementById('drop-zone'), inp=document.getElementById('file-input'), form=document.getElementById('upload-form');
+  dz.addEventListener('dragover',function(e){{e.preventDefault();dz.style.borderColor='#0a0';dz.style.background='#efe';}});
+  dz.addEventListener('dragleave',function(e){{if(!dz.contains(e.relatedTarget)){{dz.style.borderColor='';dz.style.background='';}}}});
+  dz.addEventListener('drop',function(e){{e.preventDefault();dz.style.borderColor='';dz.style.background='';var f=e.dataTransfer.files[0];if(f){{var dt=new DataTransfer();dt.items.add(f);inp.files=dt.files;form.submit();}}}});
+}})();
+    </script>
   </div>
 </div>
 <hr>
