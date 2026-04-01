@@ -139,8 +139,9 @@ class Handler(BaseHTTPRequestHandler):
                 filepath = os.path.join(uploads_dir, safe_name)
                 with open(filepath, 'wb') as f:
                     f.write(file_data)
+                import urllib.parse
                 self.send_response(303)
-                self.send_header('Location', '/')
+                self.send_header('Location', '/?uploaded=' + urllib.parse.quote(safe_name))
                 self.send_header('Content-Length', '0')
                 self.end_headers()
                 self._append_access_log(303, 0)
@@ -155,11 +156,15 @@ class Handler(BaseHTTPRequestHandler):
             self.do_PUT()
 
     def do_GET(self):
-        filename = self.path.lstrip("/")
+        import urllib.parse
+        parsed = urllib.parse.urlparse(self.path)
+        filename = parsed.path.lstrip("/")
+        query = urllib.parse.parse_qs(parsed.query)
 
         # Serve directory listing at root
         if filename == "":
-            size = self._serve_directory_listing()
+            uploaded = query.get('uploaded', [None])[0]
+            size = self._serve_directory_listing(uploaded_name=uploaded)
             self._append_access_log(200, size)
             return
 
@@ -183,7 +188,7 @@ class Handler(BaseHTTPRequestHandler):
             self.wfile.write(b"File not found.\n")
             self._append_access_log(404, len(b"File not found.\n"))
 
-    def _serve_directory_listing(self):
+    def _serve_directory_listing(self, uploaded_name=None):
         """Generate and serve a classic Python-style directory listing for BASE_DIR"""
         rows = []
 
@@ -213,13 +218,19 @@ class Handler(BaseHTTPRequestHandler):
             pass
 
         table_body = "\n".join(rows) if rows else "<tr><td colspan='3'>(empty)</td></tr>"
+        import html as _html
+        success_banner = (
+            f'<div style="background:#d4edda;color:#155724;border:1px solid #c3e6cb;'
+            f'padding:0.6em 1em;margin-bottom:0.8em;border-radius:4px;">'
+            f'&#10003; <strong>{_html.escape(uploaded_name)}</strong> uploaded successfully.</div>'
+        ) if uploaded_name else ''
         html = f"""\
 <!DOCTYPE html>
 <html>
 <head><meta charset="utf-8"><title>Directory listing for /</title></head>
 <body>
 <h2>Directory listing for /</h2>
-<hr>
+{success_banner}<hr>
 <div style="display:flex;gap:3em;align-items:flex-start;">
   <div style="flex:1;">
     <table>

